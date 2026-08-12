@@ -12,6 +12,7 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
+const BLINKY_SPEED = 0.125; // igual que Pac-Man (25% mas rapido que el resto)
 
 // Crea una partida nueva. Copia MAZE (pristino) a game.grid para poder comer
 // dots sin destruir el original, y reiniciar.
@@ -28,6 +29,9 @@ function createGame() {
     score: 0,
     lives: 3,
     dotsRemaining: dots,
+    totalDots: dots,
+    startMs: performance.now(),
+    elapsedMs: 0,
     grid,
     pacman: {
       x: PACMAN_START.x,
@@ -40,8 +44,9 @@ function createGame() {
       x: g.x,
       y: g.y,
       dir: 'up',
-      speed: GHOST_SPEED,
+      speed: g.kind === 'blinky' ? BLINKY_SPEED : GHOST_SPEED,
       kind: g.kind,
+      released: g.kind === 'blinky',
     } ) ),
   };
 }
@@ -110,40 +115,91 @@ function movePacman( game ) {
   wrapTunnel( p, width );
 }
 
-function decideGhost( game, g ) {
+function aheadOfPacman( game, n ) {
+  const p = game.pacman;
+  const d = DIRS[ p.dir ];
+  return {
+    x: Math.round( p.x ) + d.x * n,
+    y: Math.round( p.y ) + d.y * n,
+  };
+}
+
+function getBlinky( game ) {
+  return game.ghosts.find( ( g ) => g.kind === 'blinky' );
+}
+
+// Target celda-origen segun la formula clasica del fantasma.
+function ghostTarget( game, g ) {
   const grid = game.grid;
   const p = game.pacman;
+  const px = Math.round( p.x );
+  const py = Math.round( p.y );
 
+  if ( g.kind === 'blinky' ) {
+    return { x: px, y: py };
+  }
+  if ( g.kind === 'pinky' ) {
+    return aheadOfPacman( game, 4 );
+  }
+  if ( g.kind === 'inky' ) {
+    const ahead2 = aheadOfPacman( game, 2 );
+    const blinky = getBlinky( game );
+    if ( !blinky || !blinky.released ) return aheadOfPacman( game, 4 );
+    const bx = Math.round( blinky.x );
+    const by = Math.round( blinky.y );
+    return { x: 2 * ahead2.x - bx, y: 2 * ahead2.y - by };
+  }
+  if ( g.kind === 'clyde' ) {
+    const gx = Math.round( g.x );
+    const gy = Math.round( g.y );
+    if ( Math.abs( gx - px ) + Math.abs( gy - py ) >= 8 ) {
+      return { x: px, y: py };
+    }
+    return { x: 0, y: grid.length - 1 };
+  }
+  return { x: px, y: py };
+}
+
+function decideGhost( game, g ) {
+  const grid = game.grid;
   const options = Object.keys( DIRS ).filter(
     ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
   );
   // Sin salida (callejon): permitir el giro de 180.
-  const choices = options.length ? options : [ '' + OPPOSITE[ g.dir ] ];
+  const choices = options.length ? options : [ OPPOSITE[ g.dir ] ];
 
-  if ( g.kind === 'hunter' ) {
-    const px = Math.round( p.x );
-    const py = Math.round( p.y );
-    let best = choices[ 0 ];
-    let bestDist = Infinity;
-    for ( const dir of choices ) {
-      const d = DIRS[ dir ];
-      const nx = g.x + d.x;
-      const ny = g.y + d.y;
-      const dist = Math.abs( nx - px ) + Math.abs( ny - py );
-      if ( dist < bestDist ) {
-        bestDist = dist;
-        best = dir;
-      }
+  const target = ghostTarget( game, g );
+  let best = choices[ 0 ];
+  let bestDist = Infinity;
+  for ( const dir of choices ) {
+    const d = DIRS[ dir ];
+    const nx = g.x + d.x;
+    const ny = g.y + d.y;
+    const dist = Math.abs( nx - target.x ) + Math.abs( ny - target.y );
+    if ( dist < bestDist ) {
+      bestDist = dist;
+      best = dir;
     }
-    g.dir = best;
-  } else {
-    g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
   }
+  g.dir = best;
+}
+
+function shouldRelease( game, g ) {
+  if ( g.kind === 'blinky' ) return true;
+  if ( g.kind === 'pinky'  ) return game.elapsedMs >= 3000;
+  if ( g.kind === 'inky'   ) return ( game.totalDots - game.dotsRemaining ) >= 30;
+  if ( g.kind === 'clyde'  ) return ( game.totalDots - game.dotsRemaining ) >= 60;
+  return false;
 }
 
 function moveGhost( game, g ) {
   const grid = game.grid;
   const width = grid[ 0 ].length;
+
+  if ( !g.released ) {
+    if ( !shouldRelease( game, g ) ) return;
+    g.released = true;
+  }
 
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
@@ -176,6 +232,7 @@ function collides( a, b ) {
 }
 
 function update( game ) {
+  game.elapsedMs = performance.now() - game.startMs;
   movePacman( game );
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 
