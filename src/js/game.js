@@ -186,9 +186,9 @@ function decideGhost( game, g ) {
 
 function shouldRelease( game, g ) {
   if ( g.kind === 'blinky' ) return true;
-  if ( g.kind === 'pinky'  ) return game.elapsedMs >= 3000;
-  if ( g.kind === 'inky'   ) return ( game.totalDots - game.dotsRemaining ) >= 30;
-  if ( g.kind === 'clyde'  ) return ( game.totalDots - game.dotsRemaining ) >= 60;
+  if ( g.kind === 'pinky'  ) return game.elapsedMs >= 1000;
+  if ( g.kind === 'inky'   ) return game.elapsedMs >= 2000;
+  if ( g.kind === 'clyde'  ) return game.elapsedMs >= 3000;
   return false;
 }
 
